@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './AdminPanel.css';
+import Header from './Shared/Header';
+import Footer from './Shared/Footer';
 
 function AdminPanel() {
     // --- Hooks y Estados ---
@@ -156,97 +158,109 @@ function AdminPanel() {
 
     // --- Renderizado ---
     return (
-        <div className="admin-container">
-            <div className="admin-header">
-                <h1>Panel de Administrador</h1>
-                <button onClick={() => { localStorage.removeItem('authToken'); navigate('/login'); }} className="logout-button">Cerrar Sesión</button>
-            </div>
-            <Link to="/" className="back-link">← Volver a la página principal</Link>
+
+        //Envolver
+        <div style={{display: 'flex', flexDirection: 'column', minHeight: '100vh'}}>
+            <Header />
             
-            {/* Formulario de Creación */}
-            <div className="form-card">
-                <h2>Agregar Nuevo Club</h2>
-                <form onSubmit={handleCreateClub} className="club-form">
-                    <input type="text" placeholder="Nombre del club" value={newClubName} onChange={e => setNewClubName(e.target.value)} required />
-                    <input type="number" placeholder="Cupo" value={newClubCapacity} onChange={e => setNewClubCapacity(e.target.value)} required />
-                    
-                    {/* Input con botón de galería */}
-                    <div className="input-group-image">
-                        <input type="text" placeholder="URL de la imagen" value={newClubImageUrl} onChange={e => setNewClubImageUrl(e.target.value)} />
-                        <button type="button" onClick={() => openGallery('new')} className="gallery-btn" title="Escoger imagen del servidor">🖼️</button>
-                    </div>
-                    
-                    <button type="submit">Agregar Club</button>
-                </form>
-            </div>
+            <main style={{flex: 1}}>
+                        <div className="admin-container">
+                            <div className="admin-header">
+                                <h1>Panel de Administrador</h1>
+                                <button onClick={() => { localStorage.removeItem('authToken'); navigate('/login'); }} className="logout-button">Cerrar Sesión</button>
+                            </div>
+                            <Link to="/" className="back-link">← Volver a la página principal</Link>
+                            
+                            {/* Formulario de Creación */}
+                            <div className="form-card">
+                                <h2>Agregar Nuevo Club</h2>
+                                <form onSubmit={handleCreateClub} className="club-form">
+                                    <input type="text" placeholder="Nombre del club" value={newClubName} onChange={e => setNewClubName(e.target.value)} required />
+                                    <input type="number" placeholder="Cupo" value={newClubCapacity} onChange={e => setNewClubCapacity(e.target.value)} required />
+                                    
+                                    {/* Input con botón de galería */}
+                                    <div className="input-group-image">
+                                        <input type="text" placeholder="URL de la imagen" value={newClubImageUrl} onChange={e => setNewClubImageUrl(e.target.value)} />
+                                        <button type="button" onClick={() => openGallery('new')} className="gallery-btn" title="Escoger imagen del servidor">🖼️</button>
+                                    </div>
+                                    
+                                    <button type="submit">Agregar Club</button>
+                                </form>
+                            </div>
 
-            <h2>Gestionar Clubes</h2>
-            {error && <p className="error-message">{error}</p>}
-            <div className="club-list">
-                {clubes.map(club => (
-                    <div key={club.id} className="club-item">
-                        {editingClub && editingClub.id === club.id ? (
-                            /* Formulario de Edición */
-                            <form onSubmit={handleUpdateClub} className="edit-form">
-                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} />
-                                <input type="number" value={editCapacity} onChange={e => setEditCapacity(e.target.value)} />
-                                <div className="input-group-image">
-                                    <input type="text" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} />
-                                    <button type="button" onClick={() => openGallery('edit')} className="gallery-btn">🖼️</button>
-                                </div>
-                                <div className="edit-actions">
-                                    <button type="submit" className="save-button">Guardar</button>
-                                    <button type="button" onClick={() => setEditingClub(null)}>Cancelar</button>
-                                </div>
-                            </form>
-                        ) : (
-                            /* Vista Normal */
-                            <>
-                                <img src={club.url_imagen || 'https://via.placeholder.com/100'} alt={club.nombre} className="club-thumbnail" />
-                                <div className="club-info">
-                                    <h2>{club.nombre}</h2>
-                                    <p>Inscritos: {club.inscritos_actuales} / {club.cupo_maximo}</p>
-                                </div>
-                                <div className="club-actions">
-                                    <button onClick={() => handleDownloadList(club.id, club.nombre)} className="action-button download-button">Lista</button>
-                                    <button onClick={() => handleStartEdit(club)} className="action-button edit-button">Editar</button>
-                                    <button onClick={() => handleDeleteClub(club.id)} className="action-button delete-button">Eliminar</button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                ))}
-            </div>
-
-            {/* --- MODAL DE GALERÍA --- */}
-            {showGallery && (
-                <div className="modal-overlay">
-                    <div className="modal-contenido gallery-modal">
-                        <button className="cerrar-btn" onClick={() => setShowGallery(false)}>&times;</button>
-                        <h3>Galería de Imágenes</h3>
-                        <p>Selecciona una imagen cargada en el servidor (public/images):</p>
-                        
-                        {serverImages.length > 0 ? (
-                            <div className="gallery-grid">
-                                {serverImages.map((img, index) => (
-                                    <div key={index} className="gallery-item" onClick={() => selectImage(img.url)}>
-                                        <div className="img-wrapper">
-                                            <img src={img.url} alt={img.nombre} loading="lazy" />
-                                        </div>
-                                        <span>{img.nombre}</span>
+                            <h2>Gestionar Clubes</h2>
+                            {error && <p className="error-message">{error}</p>}
+                            <div className="club-list">
+                                {clubes.map(club => (
+                                    <div key={club.id} className="club-item">
+                                        {editingClub && editingClub.id === club.id ? (
+                                            /* Formulario de Edición */
+                                            <form onSubmit={handleUpdateClub} className="edit-form">
+                                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} />
+                                                <input type="number" value={editCapacity} onChange={e => setEditCapacity(e.target.value)} />
+                                                <div className="input-group-image">
+                                                    <input type="text" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} />
+                                                    <button type="button" onClick={() => openGallery('edit')} className="gallery-btn">🖼️</button>
+                                                </div>
+                                                <div className="edit-actions">
+                                                    <button type="submit" className="save-button">Guardar</button>
+                                                    <button type="button" onClick={() => setEditingClub(null)}>Cancelar</button>
+                                                </div>
+                                            </form>
+                                        ) : (
+                                            /* Vista Normal */
+                                            <>
+                                                <img src={club.url_imagen || 'https://via.placeholder.com/100'} alt={club.nombre} className="club-thumbnail" />
+                                                <div className="club-info">
+                                                    <h2>{club.nombre}</h2>
+                                                    <p>Inscritos: {club.inscritos_actuales} / {club.cupo_maximo}</p>
+                                                </div>
+                                                <div className="club-actions">
+                                                    <button onClick={() => handleDownloadList(club.id, club.nombre)} className="action-button download-button">Lista</button>
+                                                    <button onClick={() => handleStartEdit(club)} className="action-button edit-button">Editar</button>
+                                                    <button onClick={() => handleDeleteClub(club.id)} className="action-button delete-button">Eliminar</button>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="no-images">
-                                <p>⚠️ No se encontraron imágenes.</p>
-                                <small>Sube imágenes a la carpeta <b>clubes-backend/public/images</b> y haz push a GitHub.</small>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+
+                            {/* --- MODAL DE GALERÍA --- */}
+                            {showGallery && (
+                                <div className="modal-overlay">
+                                    <div className="modal-contenido gallery-modal">
+                                        <button className="cerrar-btn" onClick={() => setShowGallery(false)}>&times;</button>
+                                        <h3>Galería de Imágenes</h3>
+                                        <p>Selecciona una imagen cargada en el servidor (public/images):</p>
+                                        
+                                        {serverImages.length > 0 ? (
+                                            <div className="gallery-grid">
+                                                {serverImages.map((img, index) => (
+                                                    <div key={index} className="gallery-item" onClick={() => selectImage(img.url)}>
+                                                        <div className="img-wrapper">
+                                                            <img src={img.url} alt={img.nombre} loading="lazy" />
+                                                        </div>
+                                                        <span>{img.nombre}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="no-images">
+                                                <p>⚠️ No se encontraron imágenes.</p>
+                                                <small>Sube imágenes a la carpeta <b>clubes-backend/public/images</b> y haz push a GitHub.</small>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+        
+            </main>
+
+            <Footer />
         </div>
+        //Envolver    
     );
 }
 

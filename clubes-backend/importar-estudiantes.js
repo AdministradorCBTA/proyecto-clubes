@@ -21,7 +21,7 @@ async function importarEstudiantes() {
     }
 
     const client = await pool.connect();
-    console.log("📂 Conectado a Neon. Verificando estructura y preparando base de datos...");
+    console.log("📂 Conectado a Neon. Verificando estructura e importando estudiantes...");
 
     try {
         // 1. Asegurar la existencia de la tabla base
@@ -91,11 +91,9 @@ async function importarEstudiantes() {
             END $$;
         `);
 
-        // --- LÍNEA DE LIMPIEZA TOTAL ---
-        // Vacia la tabla de estudiantes y reinicia los contadores de ID
-        console.log("🧹 Vaciando la tabla de estudiantes para reiniciar el padrón a 0...");
-        await client.query('TRUNCATE TABLE estudiantes RESTART IDENTITY CASCADE;');
-        console.log("✅ Base de datos de estudiantes reiniciada a 0 correctamente.");
+        // NOTA: La siguiente línea borra toda la tabla de estudiantes.
+        // Se mantiene comentada para poder AGREGAR nuevos alumnos o actualizar sin borrar los existentes.
+        // await client.query('TRUNCATE TABLE estudiantes RESTART IDENTITY CASCADE;');
 
         // 5. Lectura e inserción del archivo CSV
         const stream = fs.createReadStream(csvFilePath).pipe(csv({
@@ -111,9 +109,14 @@ async function importarEstudiantes() {
 
             if (curpLimpia.length === 18) {
                 try {
+                    // UPSERT: Si la CURP no existe la inserta, si ya existe solo actualiza sus datos
                     await client.query(
                         `INSERT INTO estudiantes (curp, nombre_completo, grado_grupo) 
-                         VALUES ($1, $2, $3)`,
+                         VALUES ($1, $2, $3)
+                         ON CONFLICT (curp) 
+                         DO UPDATE SET 
+                            nombre_completo = EXCLUDED.nombre_completo,
+                            grado_grupo = EXCLUDED.grado_grupo`,
                         [curpLimpia, nombreLimpio, gradoGrupoLimpio]
                     );
 
@@ -138,10 +141,10 @@ async function importarEstudiantes() {
         await pool.end();
 
         console.log('\n========================================');
-        console.log('🏁 IMPORTACIÓN DESDE CERO COMPLETADA');
+        console.log('🏁 IMPORTACIÓN / ACTUALIZACIÓN COMPLETADA');
         console.log(`📄 Total de filas leídas: ${totalFilas}`);
-        console.log(`✅ Registros ingresados: ${registrosProcesados}`);
-        console.log(`🔢 TOTAL FINAL EN LA BASE DE DATOS: ${totalReal}`);
+        console.log(`✅ Registros procesados/actualizados: ${registrosProcesados}`);
+        console.log(`🔢 TOTAL FINAL DE ALUMNOS EN LA BASE DE DATOS: ${totalReal}`);
         console.log(`⚠️ Filas omitidas: ${registrosSaltados}`);
         console.log(`❌ Errores de BD: ${registrosErrores}`);
         console.log('========================================');

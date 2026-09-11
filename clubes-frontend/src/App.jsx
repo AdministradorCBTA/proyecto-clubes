@@ -47,6 +47,7 @@ export default function App() {
   const [estudianteEncontrado, setEstudianteEncontrado] = useState(null);
   const [clubSeleccionado, setClubSeleccionado] = useState(null);
   const [cargandoCurp, setCargandoCurp] = useState(false);
+  const [cargandoInscripcion, setCargandoInscripcion] = useState(false);
   const [errorCurp, setErrorCurp] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('Todos');
 
@@ -81,15 +82,17 @@ export default function App() {
   const handleBuscarCURP = async (e) => {
     e.preventDefault();
     const curpLimpia = curpInput.trim().toUpperCase();
-    
+
+    // 1. Validar formato estricto de CURP (18 caracteres)
     if (curpLimpia.length !== 18) {
-      setErrorCurp('La CURP debe contener exactamente 18 caracteres alfanuméricos.');
+      setErrorCurp('La CURP debe contener exactamente 18 caracteres. No introduzcas correos ni formatos inválidos.');
       return;
     }
 
-    const yaInscrito = inscripcionesGuardadas.find(i => i.curp === curpLimpia);
-    if (yaInscrito) {
-      setErrorCurp(`Esta CURP ya fue registrada en el club: ${yaInscrito.clubNombre}`);
+    // 2. Verificar si ya se registró en esta sesión local
+    const yaInscritoLocal = inscripcionesGuardadas.find(i => i.curp === curpLimpia);
+    if (yaInscritoLocal) {
+      setErrorCurp(`Esta CURP ya fue registrada en esta sesión en el club: ${yaInscritoLocal.clubNombre}`);
       return;
     }
 
@@ -99,22 +102,25 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/estudiante/curp/${curpLimpia}`);
       const data = await res.json();
-      
-      if (res.ok) {
-        setEstudianteEncontrado(data);
-        setPaso(2);
-      } else {
-        throw new Error(data.mensaje || "No encontrado");
+
+      if (!res.ok) {
+        throw new Error(data.mensaje || "Error al consultar la CURP.");
       }
-    } catch (err) {
+
       setEstudianteEncontrado({
-        curp: curpLimpia,
-        nombre: "ALUMNO REGISTRADO EN CBTa 228",
-        especialidad: "Técnico Agropecuario",
-        semestre: "Semestre Activo",
-        grupo: "A"
+        id: data.id,
+        curp: data.curp || curpLimpia,
+        nombre: data.nombre || data.nombre_completo || 'ALUMNO REGISTRADO EN CBTa 228',
+        especialidad: data.especialidad || 'Técnico Agropecuario',
+        semestre: data.semestre || data.grado_grupo || 'Semestre Activo',
+        grupo: data.grupo || 'A',
+        yaInscrito: data.yaInscrito || false,
+        clubInscrito: data.clubInscrito || null
       });
+
       setPaso(2);
+    } catch (err) {
+      setErrorCurp(err.message || "Error al conectar con el servidor.");
     } finally {
       setCargandoCurp(false);
     }
@@ -133,33 +139,47 @@ export default function App() {
     const confirmacion = window.confirm(`¿Confirmas tu inscripción al club "${club.nombre}"?`);
     if (!confirmacion) return;
 
-    const registroFinal = {
-      curp: estudianteEncontrado.curp,
-      nombreAlumno: estudianteEncontrado.nombre,
-      especialidad: estudianteEncontrado.especialidad,
-      semestre: estudianteEncontrado.semestre,
-      grupo: estudianteEncontrado.grupo,
-      clubId: club.id,
-      clubNombre: club.nombre,
-      instructor: club.instructor,
-      horario: club.horario,
-      lugar: club.lugar,
-      fechaInscripcion: new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    };
-
-    setClubes(prev => prev.map(c => c.id === club.id ? { ...c, inscritosCount: c.inscritosCount + 1 } : c));
-    setInscripcionesGuardadas(prev => [...prev, registroFinal]);
-    setClubSeleccionado(registroFinal);
-    setPaso(4);
+    setCargandoInscripcion(true);
 
     try {
-      await fetch(`${API_URL}/inscribir`, {
+      // Petición real al backend antes de actualizar el estado local
+      const res = await fetch(`${API_URL}/inscribir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(registroFinal)
+        body: JSON.stringify({
+          curp: estudianteEncontrado.curp,
+          clubId: club.id
+        })
       });
-    } catch (e) {
-      console.log("Registro local.");
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.mensaje || "Error al procesar la inscripción.");
+      }
+
+      const registroFinal = {
+        curp: estudianteEncontrado.curp,
+        nombreAlumno: estudianteEncontrado.nombre,
+        especialidad: estudianteEncontrado.especialidad,
+        semestre: estudianteEncontrado.semestre,
+        grupo: estudianteEncontrado.grupo,
+        clubId: club.id,
+        clubNombre: club.nombre,
+        instructor: club.instructor,
+        horario: club.horario,
+        lugar: club.lugar,
+        fechaInscripcion: new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      };
+
+      setClubes(prev => prev.map(c => c.id === club.id ? { ...c, inscritosCount: c.inscritosCount + 1 } : c));
+      setInscripcionesGuardadas(prev => [...prev, registroFinal]);
+      setClubSeleccionado(registroFinal);
+      setPaso(4);
+    } catch (err) {
+      alert(`No se pudo completar la inscripción:\n${err.message}`);
+    } finally {
+      setCargandoInscripcion(false);
     }
   };
 
@@ -312,7 +332,7 @@ export default function App() {
             {paso === 2 && estudianteEncontrado && (
               <div className="cbta-card-box verify-card">
                 <div className="cbta-card-header">
-                  <div className="cbta-icon-circle warning">
+                  <div className={`cbta-icon-circle ${estudianteEncontrado.yaInscrito ? 'danger' : 'warning'}`}>
                     <IconUserCheck />
                   </div>
                   <h2 className="cbta-card-title">Confirma tu Identidad</h2>
@@ -336,11 +356,22 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="cbta-btn-group">
+                {/* BLOQUEO EN CASO DE ESTAR INSCRITO PREVIAMENTE */}
+                {estudianteEncontrado.yaInscrito ? (
+                  <div className="cbta-alert-danger" style={{ marginTop: '15px' }}>
+                    <strong>⚠️ Atencion:</strong> Este alumno ya se encuentra inscrito en el club: <strong>"{estudianteEncontrado.clubInscrito}"</strong>. No se permite inscribir más de un club por alumno.
+                  </div>
+                ) : null}
+
+                <div className="cbta-btn-group" style={{ marginTop: '20px' }}>
                   <button onClick={handleNuevoRegistro} className="cbta-btn-secondary">
                     Corregir CURP
                   </button>
-                  <button onClick={handleConfirmarAlumno} className="cbta-btn-emerald flex-1">
+                  <button 
+                    onClick={handleConfirmarAlumno} 
+                    disabled={estudianteEncontrado.yaInscrito}
+                    className={`cbta-btn-emerald flex-1 ${estudianteEncontrado.yaInscrito ? 'disabled' : ''}`}
+                  >
                     <IconCheck />
                     <span>¡Sí, soy yo!</span>
                   </button>
@@ -388,10 +419,10 @@ export default function App() {
                         <div className="cbta-club-footer">
                           <button
                             onClick={() => handleInscribirClub(club)}
-                            disabled={lleno}
-                            className={`cbta-btn-emerald ${lleno ? 'disabled' : ''}`}
+                            disabled={lleno || cargandoInscripcion}
+                            className={`cbta-btn-emerald ${(lleno || cargandoInscripcion) ? 'disabled' : ''}`}
                           >
-                            {lleno ? 'Sin Cupo' : 'Inscribirme Aquí'}
+                            {cargandoInscripcion ? 'Procesando...' : lleno ? 'Sin Cupo' : 'Inscribirme Aquí'}
                           </button>
                         </div>
                       </div>
@@ -486,6 +517,7 @@ export default function App() {
                     <thead>
                       <tr>
                         <th>Club</th>
+                        <th>Instructor</th>
                         <th>Cupo</th>
                         <th className="text-right">Acción</th>
                       </tr>
@@ -494,6 +526,7 @@ export default function App() {
                       {clubes.map((c) => (
                         <tr key={c.id}>
                           <td><strong>{c.nombre}</strong></td>
+                          <td>{c.instructor}</td>
                           <td>{c.inscritosCount} / {c.cupoMaximo}</td>
                           <td className="text-right">
                             <button onClick={() => handleEliminarClub(c.id)} className="cbta-btn-icon-danger">

@@ -32,7 +32,7 @@ app.use('/imagenes', express.static('public/images'));
 
 // --- 5. RUTAS DE LA APLICACIÓN ---
 
-// Obtener la lista de todos los clubes
+// Obtener la lista de todos los clubes (incluye columna instructor)
 app.get('/clubes', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM clubes ORDER BY id ASC');
@@ -43,20 +43,47 @@ app.get('/clubes', async (req, res) => {
     }
 });
 
-// Buscar estudiante por CURP
+// Buscar estudiante por CURP y verificar si ya está inscrito
 app.get('/estudiante/curp/:curp', async (req, res) => {
   const curpBusqueda = req.params.curp.trim().toUpperCase();
+
+  // VALIDACIÓN ESTRICTA: La CURP debe medir exactamente 18 caracteres
+  if (!curpBusqueda || curpBusqueda.length !== 18) {
+    return res.status(400).json({ 
+      mensaje: 'La CURP debe tener exactamente 18 caracteres. No se admiten correos ni formatos inválidos.' 
+    });
+  }
+
   try {
+    // 1. Buscar estudiante
     const result = await pool.query(
-      'SELECT curp, nombre_completo AS nombre, grado_grupo AS semestre FROM estudiantes WHERE UPPER(curp) = $1',
+      'SELECT id, curp, nombre_completo AS nombre, grado_grupo AS semestre FROM estudiantes WHERE UPPER(curp) = $1',
       [curpBusqueda]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ mensaje: 'CURP no encontrada en el padrón de alumnos.' });
+      return res.status(404).json({ mensaje: 'La CURP no se encuentra registrada en el padrón de alumnos.' });
     }
 
-    res.json(result.rows[0]);
+    const estudiante = result.rows[0];
+
+    // 2. Verificar si ya está inscrito en algún club
+    const insRes = await pool.query(
+      `SELECT c.nombre AS club_nombre 
+       FROM inscripciones i 
+       JOIN clubes c ON i.id_club = c.id 
+       WHERE i.id_estudiante = $1`,
+      [estudiante.id]
+    );
+
+    const yaInscrito = insRes.rows.length > 0;
+    const clubInscrito = yaInscrito ? insRes.rows[0].club_nombre : null;
+
+    res.json({
+      ...estudiante,
+      yaInscrito,
+      clubInscrito
+    });
   } catch (err) {
     console.error('Error al consultar estudiante por CURP:', err);
     res.status(500).json({ mensaje: 'Error en el servidor al consultar CURP.' });
@@ -66,23 +93,39 @@ app.get('/estudiante/curp/:curp', async (req, res) => {
 // Inscribir a un estudiante en un club por CURP
 app.post('/inscribir', async (req, res) => {
     const { curp, clubId } = req.body;
+    const curpLimpia = curp ? curp.trim().toUpperCase() : '';
+
+    // VALIDACIÓN ESTRICTA: Longitud de CURP
+    if (!curpLimpia || curpLimpia.length !== 18) {
+        return res.status(400).json({ mensaje: 'CURP inválida. Debe contener exactamente 18 caracteres.' });
+    }
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        const curpLimpia = curp ? curp.trim().toUpperCase() : '';
+        // 1. Validar existencia del estudiante
         const estRes = await client.query('SELECT * FROM estudiantes WHERE UPPER(curp) = $1', [curpLimpia]);
-        if (estRes.rows.length === 0) throw new Error("La CURP no se encuentra registrada.");
+        if (estRes.rows.length === 0) throw new Error("La CURP no se encuentra registrada en el padrón.");
 
         const estudiante = estRes.rows[0];
 
-        const insRes = await client.query('SELECT * FROM inscripciones WHERE id_estudiante = $1', [estudiante.id]);
-        if (insRes.rows.length > 0) throw new Error("Este estudiante ya se encuentra inscrito en un club.");
+        // 2. Bloqueo de doble inscripción: Verificar si ya tiene club asignado
+        const insRes = await client.query(
+            `SELECT c.nombre FROM inscripciones i JOIN clubes c ON i.id_club = c.id WHERE i.id_estudiante = $1`, 
+            [estudiante.id]
+        );
+        
+        if (insRes.rows.length > 0) {
+            throw new Error(`El alumno ya está inscrito en el club "${insRes.rows[0].nombre}". Solo se permite un club por estudiante.`);
+        }
 
+        // 3. Validar disponibilidad del club seleccionado
         const clubRes = await client.query('SELECT * FROM clubes WHERE id = $1 FOR UPDATE', [clubId]);
         if (clubRes.rows.length === 0) throw new Error("El club seleccionado no existe.");
         if (clubRes.rows[0].inscritos_actuales >= clubRes.rows[0].cupo_maximo) throw new Error("El club ya no tiene cupos disponibles.");
 
+        // 4. Registrar la inscripción e incrementar cupo ocupado
         await client.query('INSERT INTO inscripciones (id_estudiante, id_club) VALUES ($1, $2)', [estudiante.id, clubId]);
         await client.query('UPDATE clubes SET inscritos_actuales = inscritos_actuales + 1 WHERE id = $1', [clubId]);
         
@@ -90,7 +133,13 @@ app.post('/inscribir', async (req, res) => {
         res.status(200).json({ mensaje: `¡Felicidades, ${estudiante.nombre_completo}! Te has inscrito correctamente.` });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error("Error en /inscribir:", err);
+        
+        // Manejar duplicados por restricción UNIQUE de la BD (PostgreSQL Error 23505)
+        if (err.code === '23505') {
+            return res.status(400).json({ mensaje: 'Este estudiante ya se encuentra inscrito en un club.' });
+        }
+
+        console.error("Error en /inscribir:", err.message);
         res.status(400).json({ mensaje: err.message });
     } finally {
         client.release();
@@ -116,7 +165,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Middleware de protección
+// Middleware de protección para rutas del Administrador
 const protegerRuta = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -129,13 +178,13 @@ const protegerRuta = (req, res, next) => {
     });
 };
 
-// Crear club
+// Crear club (Incluye soporte para instructor)
 app.post('/clubes', protegerRuta, async (req, res) => {
-    const { nombre, cupo_maximo, url_imagen } = req.body;
+    const { nombre, cupo_maximo, url_imagen, instructor } = req.body;
     try {
         const result = await pool.query(
-            'INSERT INTO clubes (nombre, cupo_maximo, url_imagen, inscritos_actuales) VALUES ($1, $2, $3, 0) RETURNING *',
-            [nombre, cupo_maximo, url_imagen]
+            'INSERT INTO clubes (nombre, cupo_maximo, url_imagen, instructor, inscritos_actuales) VALUES ($1, $2, $3, $4, 0) RETURNING *',
+            [nombre, cupo_maximo, url_imagen, instructor || 'Por asignar']
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -144,14 +193,14 @@ app.post('/clubes', protegerRuta, async (req, res) => {
     }
 });
 
-// Actualizar club
+// Actualizar club (Incluye soporte para instructor)
 app.put('/clubes/:id', protegerRuta, async (req, res) => {
     const { id } = req.params;
-    const { nombre, cupo_maximo, url_imagen } = req.body;
+    const { nombre, cupo_maximo, url_imagen, instructor } = req.body;
     try {
         const result = await pool.query(
-            'UPDATE clubes SET nombre = $1, cupo_maximo = $2, url_imagen = $3 WHERE id = $4 RETURNING *',
-            [nombre, cupo_maximo, url_imagen, id]
+            'UPDATE clubes SET nombre = $1, cupo_maximo = $2, url_imagen = $3, instructor = $4 WHERE id = $5 RETURNING *',
+            [nombre, cupo_maximo, url_imagen, instructor, id]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ mensaje: 'Club no encontrado.' });

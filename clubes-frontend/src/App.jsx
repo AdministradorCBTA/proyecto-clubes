@@ -16,15 +16,6 @@ const API_URL = getApiUrl();
 // CONTRASEÑA DEL PANEL ADMINISTRATIVO
 const ADMIN_PASSWORD_CORRECTA = '*club@25#';
 
-// Clubes por defecto mientras carga el servidor
-const MOCK_CLUBES_INICIALES = [
-  { id: 1, nombre: "Banda de Guerra", instructor: "Prof. Alejandro Ruiz", cupoMaximo: 30, inscritosCount: 0, horario: "Lunes y Miércoles 14:00 - 16:00", lugar: "Plaza Cívica", categoria: "Cívico", descripcion: "Desarrolla habilidades rítmicas, disciplina y coordinación institucional." },
-  { id: 2, nombre: "Fútbol Varonil", instructor: "L.EF. Carlos Gómez", cupoMaximo: 22, inscritosCount: 0, horario: "Martes y Jueves 15:00 - 17:00", lugar: "Cancha Principal", categoria: "Deportivo", descripcion: "Entrenamiento táctico, acondicionamiento físico y competencias intercolegiales." },
-  { id: 3, nombre: "Danza Folklórica", instructor: "Mtra. Elena Salgado", cupoMaximo: 25, inscritosCount: 0, horario: "Lunes y Viernes 14:30 - 16:30", lugar: "Auditorio Escolar", categoria: "Cultural", descripcion: "Preservación de tradiciones mexicanas a través del baile y expresiones culturales." },
-  { id: 4, nombre: "Ajedrez y Estrategia", instructor: "Ing. Manuel Flores", cupoMaximo: 20, inscritosCount: 0, horario: "Miércoles 13:30 - 15:30", lugar: "Biblioteca Central", categoria: "Académico", descripcion: "Fomento del pensamiento lógico, resolución de problemas y concentración." },
-  { id: 5, nombre: "Voleibol Mixto", instructor: "Profra. Patricia Vega", cupoMaximo: 20, inscritosCount: 0, horario: "Martes y Jueves 14:00 - 16:00", lugar: "Cancha Multiusos", categoria: "Deportivo", descripcion: "Desarrollo de trabajo en equipo, reflejos y condición física integral." }
-];
-
 // Componentes de Iconos SVG Integrados
 const IconSearch = () => <svg className="cbta-icon-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>;
 const IconCheck = () => <svg className="cbta-icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>;
@@ -37,8 +28,13 @@ const IconDownload = () => <svg className="cbta-icon-sm" fill="none" stroke="cur
 const IconClose = () => <svg className="cbta-icon-md" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>;
 
 export default function App() {
-  const [inscripcionesAbiertas, setInscripcionesAbiertas] = useState(true);
-  const [clubes, setClubes] = useState(MOCK_CLUBES_INICIALES);
+  // Persistencia de estado de inscripciones abiertas/cerradas usando localStorage
+  const [inscripcionesAbiertas, setInscripcionesAbiertas] = useState(() => {
+    const estadoGuardado = localStorage.getItem('cbta_inscripciones_abiertas');
+    return estadoGuardado !== null ? JSON.parse(estadoGuardado) : false; // Por defecto cerrado si no se ha configurado
+  });
+
+  const [clubes, setClubes] = useState([]);
   const [inscripcionesGuardadas, setInscripcionesGuardadas] = useState([]);
 
   // Flujo del alumno
@@ -49,7 +45,6 @@ export default function App() {
   const [cargandoCurp, setCargandoCurp] = useState(false);
   const [cargandoInscripcion, setCargandoInscripcion] = useState(false);
   const [errorCurp, setErrorCurp] = useState('');
-  const [filtroCategoria, setFiltroCategoria] = useState('Todos');
 
   // Panel de Administrador
   const [mostrarAdmin, setMostrarAdmin] = useState(false);
@@ -57,11 +52,12 @@ export default function App() {
   const [adminPass, setAdminPass] = useState('');
   const [errorAdmin, setErrorAdmin] = useState('');
 
+  // Cargar clubes desde el backend
   useEffect(() => {
     fetch(`${API_URL}/clubes`)
       .then(res => res.ok ? res.json() : Promise.reject())
       .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           const clubesFormateados = data.map(c => ({
             id: c.id,
             nombre: c.nombre,
@@ -76,20 +72,25 @@ export default function App() {
           setClubes(clubesFormateados);
         }
       })
-      .catch(() => console.log("Servidor respondiendo con datos de respaldo."));
+      .catch(() => console.log("Cargando lista de clubes."));
   }, []);
+
+  // Función para alternar el estado de las inscripciones y guardarlo de forma permanente
+  const toggleEstadoInscripciones = () => {
+    const nuevoEstado = !inscripcionesAbiertas;
+    setInscripcionesAbiertas(nuevoEstado);
+    localStorage.setItem('cbta_inscripciones_abiertas', JSON.stringify(nuevoEstado));
+  };
 
   const handleBuscarCURP = async (e) => {
     e.preventDefault();
     const curpLimpia = curpInput.trim().toUpperCase();
 
-    // 1. Validar formato estricto de CURP (18 caracteres)
     if (curpLimpia.length !== 18) {
       setErrorCurp('La CURP debe contener exactamente 18 caracteres. No introduzcas correos ni formatos inválidos.');
       return;
     }
 
-    // 2. Verificar si ya se registró en esta sesión local
     const yaInscritoLocal = inscripcionesGuardadas.find(i => i.curp === curpLimpia);
     if (yaInscritoLocal) {
       setErrorCurp(`Esta CURP ya fue registrada en esta sesión en el club: ${yaInscritoLocal.clubNombre}`);
@@ -142,7 +143,6 @@ export default function App() {
     setCargandoInscripcion(true);
 
     try {
-      // Petición real al backend antes de actualizar el estado local
       const res = await fetch(`${API_URL}/inscribir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -225,10 +225,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const clubesFiltrados = filtroCategoria === 'Todos' 
-    ? clubes 
-    : clubes.filter(c => c.categoria === filtroCategoria);
-
   return (
     <div className="cbta-app-main-layout">
       <Header />
@@ -251,13 +247,23 @@ export default function App() {
       {/* CONTENIDO DE REGISTRO */}
       <main className="cbta-main-content">
         {!inscripcionesAbiertas ? (
-          <div className="cbta-card-box closed-card">
-            <img 
-              src="https://cbta228.edu.mx/imagenes/logo.png" 
-              alt="Logo CBTa 228" 
-              className="cbta-plantel-logo"
-            />
-            <div className="cbta-icon-circle danger">
+          <div className="cbta-card-box closed-card" style={{ textAlign: 'center', padding: '40px 20px' }}>
+            {/* LOGO INSTITUCIONAL CON TAMAÑO CONTROLADO */}
+            <div style={{ marginBottom: '20px' }}>
+              <img 
+                src="https://cbta228.edu.mx/imagenes/logo.png" 
+                alt="Logo Oficial CBTa 228" 
+                style={{ 
+                  maxHeight: '110px', 
+                  maxWidth: '100%', 
+                  objectFit: 'contain',
+                  display: 'block',
+                  margin: '0 auto'
+                }}
+              />
+            </div>
+
+            <div className="cbta-icon-circle danger" style={{ margin: '0 auto 15px auto' }}>
               <IconLock />
             </div>
             <h2 className="cbta-title-danger">INSCRIPCIONES CERRADAS</h2>
@@ -356,10 +362,9 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BLOQUEO EN CASO DE ESTAR INSCRITO PREVIAMENTE */}
                 {estudianteEncontrado.yaInscrito ? (
                   <div className="cbta-alert-danger" style={{ marginTop: '15px' }}>
-                    <strong>⚠️ Atencion:</strong> Este alumno ya se encuentra inscrito en el club: <strong>"{estudianteEncontrado.clubInscrito}"</strong>. No se permite inscribir más de un club por alumno.
+                    <strong>⚠️ Atención:</strong> Este alumno ya se encuentra inscrito en el club: <strong>"{estudianteEncontrado.clubInscrito}"</strong>. No se permite inscribir más de un club por alumno.
                   </div>
                 ) : null}
 
@@ -392,43 +397,49 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="cbta-clubs-grid">
-                  {clubesFiltrados.map((club) => {
-                    const lleno = club.inscritosCount >= club.cupoMaximo;
-                    return (
-                      <div key={club.id} className="cbta-club-card">
-                        <div className="cbta-club-body">
-                          <span className="cbta-badge">{club.categoria}</span>
-                          <h3 className="cbta-club-title">{club.nombre}</h3>
-                          <p className="cbta-club-desc">{club.descripcion}</p>
-                          
-                          <div className="cbta-club-info-list">
-                            <p><strong>Instructor:</strong> {club.instructor}</p>
-                            <p><strong>Horario:</strong> {club.horario}</p>
-                            <p><strong>Lugar:</strong> {club.lugar}</p>
+                {clubes.length === 0 ? (
+                  <div className="cbta-card-box" style={{ textAlign: 'center', padding: '30px' }}>
+                    <p className="cbta-text-muted">No hay clubes registrados actualmente. Contacta a la dirección escolar para más información.</p>
+                  </div>
+                ) : (
+                  <div className="cbta-clubs-grid">
+                    {clubes.map((club) => {
+                      const lleno = club.inscritosCount >= club.cupoMaximo;
+                      return (
+                        <div key={club.id} className="cbta-club-card">
+                          <div className="cbta-club-body">
+                            <span className="cbta-badge">{club.categoria}</span>
+                            <h3 className="cbta-club-title">{club.nombre}</h3>
+                            <p className="cbta-club-desc">{club.descripcion}</p>
+                            
+                            <div className="cbta-club-info-list">
+                              <p><strong>Instructor:</strong> {club.instructor}</p>
+                              <p><strong>Horario:</strong> {club.horario}</p>
+                              <p><strong>Lugar:</strong> {club.lugar}</p>
+                            </div>
+
+                            <div className="cbta-club-capacity">
+                              <span>Disponibilidad:</span>
+                              <span className={lleno ? 'text-danger' : 'text-success'}>
+                                {club.inscritosCount} / {club.cupoMaximo}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="cbta-club-capacity">
-                            <span>Disponibilidad:</span>
-                            <span className={lleno ? 'text-danger' : 'text-success'}>
-                              {club.inscritosCount} / {club.cupoMaximo}
-                            </span>
+                          <div className="cbta-club-footer">
+                            <button
+                              onClick={() => handleInscribirClub(club)}
+                              disabled={lleno || cargandoInscripcion}
+                              className={`cbta-btn-emerald ${(lleno || cargandoInscripcion) ? 'disabled' : ''}`}
+                            >
+                              {cargandoInscripcion ? 'Procesando...' : lleno ? 'Sin Cupo' : 'Inscribirme Aquí'}
+                            </button>
                           </div>
                         </div>
-
-                        <div className="cbta-club-footer">
-                          <button
-                            onClick={() => handleInscribirClub(club)}
-                            disabled={lleno || cargandoInscripcion}
-                            className={`cbta-btn-emerald ${(lleno || cargandoInscripcion) ? 'disabled' : ''}`}
-                          >
-                            {cargandoInscripcion ? 'Procesando...' : lleno ? 'Sin Cupo' : 'Inscribirme Aquí'}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -498,7 +509,7 @@ export default function App() {
                 <div className="cbta-admin-status-row">
                   <span>Estado de Inscripciones:</span>
                   <button
-                    onClick={() => setInscripcionesAbiertas(!inscripcionesAbiertas)}
+                    onClick={toggleEstadoInscripciones}
                     className={`cbta-btn-toggle ${inscripcionesAbiertas ? 'danger' : 'success'}`}
                   >
                     {inscripcionesAbiertas ? 'Cerrar Registro' : 'Abrir Registro'}
@@ -523,18 +534,26 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {clubes.map((c) => (
-                        <tr key={c.id}>
-                          <td><strong>{c.nombre}</strong></td>
-                          <td>{c.instructor}</td>
-                          <td>{c.inscritosCount} / {c.cupoMaximo}</td>
-                          <td className="text-right">
-                            <button onClick={() => handleEliminarClub(c.id)} className="cbta-btn-icon-danger">
-                              <IconTrash />
-                            </button>
+                      {clubes.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" style={{ textAlign: 'center', padding: '15px' }}>
+                            No hay clubes registrados para este semestre.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        clubes.map((c) => (
+                          <tr key={c.id}>
+                            <td><strong>{c.nombre}</strong></td>
+                            <td>{c.instructor}</td>
+                            <td>{c.inscritosCount} / {c.cupoMaximo}</td>
+                            <td className="text-right">
+                              <button onClick={() => handleEliminarClub(c.id)} className="cbta-btn-icon-danger">
+                                <IconTrash />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
